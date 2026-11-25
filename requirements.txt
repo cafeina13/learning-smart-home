@@ -1,0 +1,10 @@
+paho-mqtt>=2.1
+numpy
+pandas
+scikit-learn
+openpyxl
+fastapi
+uvicorn[standard]
+pyarrow
+# The paper's CNN/BiLSTM forecasters; CPU build is enough:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu

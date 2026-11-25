@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Datasets and generated files stay local (REFIT is ~0.5 GB compressed).
+data/
+kaggle/output/
+docs/packet_tracer/*-original.mp4
+

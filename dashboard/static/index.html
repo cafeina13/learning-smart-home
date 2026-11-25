@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Learning Smart Home</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6ec;
+    --accent: #2f6fdb; --good: #1f8a4c; --warn: #b8670a; --bad: #c23b3b; --chip: #eef1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b1f27; --text: #e7eaf0; --muted: #98a1b3; --line: #2b313c;
+      --accent: #6b9bff; --good: #4cc27f; --warn: #e3a04a; --bad: #ef6b6b; --chip: #252b35;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { font-size: 17px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .clock { font-variant-numeric: tabular-nums; font-size: 16px; font-weight: 600; }
+  .controls { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+  main { display: grid; gap: 16px; padding: 16px 20px 32px;
+         grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); max-width: 1400px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .stat { background: var(--chip); border-radius: 8px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .room { margin-bottom: 10px; }
+  .room h3 { font-size: 12px; color: var(--muted); margin: 8px 0 6px; text-transform: capitalize; }
+  .dev { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0;
+         border-top: 1px solid var(--line); }
+  .dev:first-of-type { border-top: 0; }
+  .dev .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dev .val { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; margin-right: 6px; white-space: nowrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+  .seg button { border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--text);
+                padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+  .seg button:first-child { border-left: 0; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px;
+               padding: 5px 10px; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  select { font: inherit; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  .sug { border-top: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .sug:first-of-type { border-top: 0; }
+  .sug .title { font-weight: 600; }
+  .sug .note { color: var(--muted); font-size: 12.5px; grid-column: 1; }
+  .sug .actions { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; align-items: start; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--chip);
+         color: var(--muted); margin-right: 6px; vertical-align: 1px; }
+  .tag.smart_start { color: var(--warn); } .tag.standby_cut { color: var(--good); } .tag.automation { color: var(--accent); }
+  .ctl { font-size: 10.5px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--muted); margin-left: 6px; }
+  .cut { color: var(--good); font-weight: 600; }
+  .machine { border-top: 1px solid var(--line); padding: 10px 0; }
+  .machine:first-child { border-top: 0; }
+  .machine .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .machine .head b { text-transform: capitalize; }
+  .machine input { font: inherit; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .opt { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--panel); color: var(--text);
+         font: inherit; cursor: pointer; text-align: left; }
+  .opt.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .opt small { display: block; color: var(--muted); }
+  .status { font-size: 12px; font-weight: 600; }
+  .status.accepted { color: var(--good); } .status.rejected { color: var(--muted); }
+  .feed { max-height: 360px; overflow-y: auto; }
+  .row { display: flex; gap: 10px; padding: 4px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .row:first-child { border-top: 0; }
+  .row time { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; width: 76px; }
+  .alert { color: var(--bad); font-weight: 600; }
+  .source { color: var(--muted); }
+  .note-banner { color: var(--muted); font-size: 12.5px; margin: -4px 0 10px; }
+  .empty { color: var(--muted); }
+  @media (max-width: 520px) { header, main { padding-left: 16px; padding-right: 16px; } main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Learning Smart Home</h1>
+    <div class="clock" id="clock">–</div>
+  </div>
+  <div class="controls">
+    <button class="btn" id="play">Pause</button>
+    <button class="btn" id="skip" title="Live through 7 simulated days at once">Skip a week</button>
+    <label>Speed
+      <select id="speed">
+        <option value="60">1 min/s</option>
+        <option value="600" selected>10 min/s</option>
+        <option value="1800">30 min/s</option>
+        <option value="3600">1 h/s</option>
+      </select>
+    </label>
+  </div>
+</header>
+
+<main>
+  <section class="wide">
+    <h2>Energy</h2>
+    <div class="stats" id="energy"></div>
+  </section>
+
+  <section>
+    <h2>Devices</h2>
+    <div id="devices"></div>
+  </section>
+
+  <section>
+    <h2>Smart start</h2>
+    <p class="note-banner">Load a machine, say when it must be finished, and the house picks the start with the most solar to spare.</p>
+    <div id="machines"></div>
+  </section>
+
+  <section>
+    <h2>Suggestions</h2>
+    <p class="note-banner"><span id="source"></span>
+      <button class="btn" id="learn" style="margin-left:8px">Learn from this home</button></p>
+    <div id="suggestions"></div>
+  </section>
+
+  <section>
+    <h2>Activity</h2>
+    <div class="feed" id="activity"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const fmtTime = (iso) => { const d = new Date(iso); return `${days[(d.getDay() + 6) % 7]} ${d.toTimeString().slice(0, 5)}`; };
+const pretty = (id) => id.split("/")[1].replaceAll("_", " ");
+let running = true;
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function renderEnergy(e) {
+  const m = e.meter;
+  const share = m.load_kwh > 0 ? Math.round(100 * (m.solar_kwh + m.battery_kwh) / m.load_kwh) : 0;
+  const stats = [
+    [`${e.solar_w.toFixed(0)} W`, "Solar now"],
+    [`${e.battery_pct.toFixed(0)} %`, "Battery"],
+    [`${e.load_w.toFixed(0)} W`, "House load now"],
+    [`${m.load_kwh.toFixed(2)} kWh`, "Used since start"],
+    [`${m.grid_kwh.toFixed(2)} kWh`, "From the grid"],
+    [`${share} %`, "Covered by solar + battery"],
+  ];
+  $("energy").innerHTML = stats.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+}
+
+const CONTROL = { manual: "smart plug", armable: "delay start" };
+
+function renderDevices(list) {
+  const rooms = {};
+  for (const d of list) (rooms[d.room] ??= []).push(d);
+  $("devices").innerHTML = Object.entries(rooms).map(([room, devs]) => `
+    <div class="room"><h3>${esc(room)}</h3>${devs.map((d) => {
+      const reading = d.allowed ? "" : `${d.value}${{ temperature: " °C", battery: " %", solar: " W" }[d.kind] ?? ""}`;
+      let shown = esc(d.allowed && d.power_w > 0 ? `${d.power_w} W` : reading);
+      if (d.value === "cut") shown = `<span class="cut">power cut</span>`;
+      if (d.value === "armed") shown = "armed";
+      // People switch devices on and off; cutting and arming happen elsewhere.
+      const buttons = (d.allowed ?? []).filter((v) => v !== "cut" && v !== "armed");
+      const seg = buttons.length ? `<span class="seg">${buttons.map((v) =>
+        `<button class="${v === d.value ? "on" : ""}" data-dev="${esc(d.id)}" data-val="${esc(v)}">${esc(v)}</button>`).join("")}</span>` : "";
+      const ctl = CONTROL[d.control] ? `<span class="ctl">${CONTROL[d.control]}</span>` : "";
+      return `<div class="dev"><span class="name">${esc(pretty(d.id))}${ctl}</span><span class="val">${shown}</span>${seg}</div>`;
+    }).join("")}</div>`).join("");
+}
+
+// The smart-start panel is re-drawn only when something in it changes, so a
+// deadline being typed is not wiped by the once-a-second refresh.
+const typedDeadline = {};
+let machinesSig = "";
+const localInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+function defaultDeadline(dev, nowIso) {
+  const now = new Date(nowIso), at = new Date(nowIso);
+  const s = dev.smart_start;
+  const [h, m] = (s?.default_deadline ?? "18:00").split(":").map(Number);
+  at.setHours(h, m, 0, 0);
+  if (s?.next_day || at <= now) at.setDate(at.getDate() + 1);
+  return localInput(at);
+}
+
+function renderMachines(devices, plans, nowIso) {
+  const machines = devices.filter((d) => d.control === "armable");
+  const sig = JSON.stringify([machines.map((d) => [d.id, d.value, d.smart_start]), plans]);
+  if (sig === machinesSig) return;
+  machinesSig = sig;
+  $("machines").innerHTML = machines.map((d) => {
+    const plan = plans.find((p) => p.device === d.id);
+    if (d.value === "armed" && plan) {
+      return `<div class="machine"><div class="head"><b>${esc(pretty(d.id))}</b>
+          <span class="source">armed · finish by ${fmtTime(plan.deadline)} · ${plan.chosen_by === "user" ? "your choice" : "best preselected"}</span>
+          <button class="btn" data-dev="${esc(d.id)}" data-val="off">Cancel</button></div>
+        <div class="opts">${plan.options.map((o) => `
+          <button class="opt ${o.start === plan.chosen ? "chosen" : ""}" data-plan="${esc(d.id)}" data-start="${esc(o.start)}">
+            Start ${fmtTime(o.start)}<small>${Math.round(100 * o.solar_share)}% on solar</small></button>`).join("")}</div></div>`;
+    }
+    if (d.value === "on") return `<div class="machine"><div class="head"><b>${esc(pretty(d.id))}</b><span class="source">running</span></div></div>`;
+    const value = typedDeadline[d.id] ?? defaultDeadline(d, nowIso);
+    return `<div class="machine"><div class="head"><b>${esc(pretty(d.id))}</b>
+        <label class="source">finish by <input type="datetime-local" data-deadline="${esc(d.id)}" value="${value}"></label>
+        <button class="btn primary" data-arm="${esc(d.id)}">Arm</button>
+        ${d.smart_start ? "" : `<span class="source">(smart start not enabled yet)</span>`}</div></div>`;
+  }).join("") || `<p class="empty">No machines.</p>`;
+}
+
+function renderActivity(rows) {
+  if (!rows.length) { $("activity").innerHTML = `<p class="empty">Nothing yet.</p>`; return; }
+  $("activity").innerHTML = rows.map((r) => {
+    const t = r.ts ? fmtTime(r.ts) : "";
+    if (r.type === "alert") {
+      const p = JSON.parse(r.payload);
+      const text = {
+        temperature_deviation: () => `Alert: ${esc(pretty(p.device))} at ${p.value} °C (average ${p.average} °C)`,
+        refused: () => `Refused: ${esc(p.source)} may not set ${esc(pretty(p.device))} to “${esc(p.value)}”`,
+        rule_disabled: () => `Rule “${esc(p.rule)}” switched off after ${p.overrides} overrides`,
+      }[p.kind]?.() ?? esc(p.kind);
+      return `<div class="row"><time>${t}</time><span class="alert">${text}</span></div>`;
+    }
+    const src = r.source.startsWith("rule:") ? `rule “${esc(r.source.slice(5))}”` : esc(r.source);
+    return `<div class="row"><time>${t}</time><span>${esc(pretty(r.device))} → <b>${esc(JSON.parse(r.value))}</b> <span class="source">by ${src}</span></span></div>`;
+  }).join("");
+}
+
+async function renderSuggestions() {
+  const list = await api("/api/suggestions");
+  const pending = list.filter((s) => s.status === "pending");
+  const done = list.filter((s) => s.status !== "pending");
+  $("suggestions").innerHTML = [...pending, ...done].map((s) => `
+    <div class="sug">
+      <div class="title"><span class="tag ${s.kind}">${s.kind.replaceAll("_", " ")}</span>${esc(s.title)}</div>
+      <div class="note">${esc(s.energy_note)}${s.learned_from ? ` · learned from ${esc(s.learned_from)}` : ""}</div>
+      <div class="actions">${s.status === "pending"
+        ? `<button class="btn primary" data-key="${esc(s.key)}" data-accept="1">Accept</button>
+           <button class="btn" data-key="${esc(s.key)}" data-accept="0">Reject</button>`
+        : `<span class="status ${s.status}">${s.status}</span>`}</div>
+    </div>`).join("") || `<p class="empty">No suggestions.</p>`;
+}
+
+async function refresh() {
+  try {
+    const s = await api("/api/state");
+    $("clock").textContent = new Date(s.time).toLocaleString("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit" });
+    running = s.running;
+    $("play").textContent = running ? "Pause" : "Run";
+    $("source").textContent = `Latest data: ${s.data_source}`;
+    renderEnergy(s.energy);
+    renderDevices(s.devices);
+    renderMachines(s.devices, s.plans, s.time);
+    renderActivity(s.activity);
+  } catch (err) {
+    $("clock").textContent = "Server not reachable";
+  }
+}
+
+document.addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  if (b.dataset.arm) {
+    const input = document.querySelector(`input[data-deadline="${b.dataset.arm}"]`);
+    const [room, name] = b.dataset.arm.split("/");
+    try {
+      await api(`/api/devices/${room}/${name}`, { value: "armed", deadline: input.value });
+      delete typedDeadline[b.dataset.arm];
+    } catch (err) { alert(err.message); }
+    refresh();
+  } else if (b.dataset.plan) {
+    await api("/api/plans/choose", { device: b.dataset.plan, start: b.dataset.start });
+    refresh();
+  } else if (b.dataset.dev) {
+    const [room, name] = b.dataset.dev.split("/");
+    await api(`/api/devices/${room}/${name}`, { value: b.dataset.val });
+    refresh();
+  } else if (b.dataset.key) {
+    await api("/api/suggestions/decide", { key: b.dataset.key, accept: b.dataset.accept === "1" });
+    renderSuggestions();
+  } else if (b.id === "play") {
+    await api("/api/sim", { running: !running });
+    refresh();
+  } else if (b.id === "skip" || b.id === "learn") {
+    const label = b.textContent;
+    b.disabled = true;
+    b.textContent = b.id === "skip" ? "Living a week…" : "Learning…";
+    try {
+      if (b.id === "skip") await api("/api/sim", { skip_days: 7 });
+      else {
+        const r = await api("/api/learn", {});
+        b.textContent = `${r.new_suggestions} new from ${r.days} days`;
+        setTimeout(() => (b.textContent = label), 3000);
+      }
+    } finally {
+      b.disabled = false;
+      if (b.id === "skip") b.textContent = label;
+      refresh(); renderSuggestions();
+    }
+  }
+});
+document.addEventListener("input", (ev) => {
+  if (ev.target.dataset.deadline) typedDeadline[ev.target.dataset.deadline] = ev.target.value;
+});
+$("speed").addEventListener("change", (ev) => api("/api/sim", { speed: Number(ev.target.value) }));
+
+refresh();
+renderSuggestions();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
