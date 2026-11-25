@@ -74,3 +74,18 @@ def test_manual_devices_report_their_control(client):
     devices = {d["id"]: d for d in c.get("/api/state").json()["devices"]}
     assert devices["living/television_site"]["control"] == "manual"
     assert devices["kitchen/coffee_machine"]["control"] == "auto"
+
+
+def test_tariff_and_quiet_hours_from_the_dashboard(client):
+    c, _ = client
+    assert c.get("/api/state").json()["smart_start_settings"] == {"tariff": "none", "quiet": False}
+    assert c.post("/api/smart-start/settings", json={"tariff": "economy7", "quiet": True}).json() == {
+        "tariff": "economy7", "quiet": True}
+    assert c.post("/api/smart-start/settings", json={"tariff": "cheapest"}).status_code == 400
+    now = datetime.fromisoformat(c.get("/api/state").json()["time"])
+    deadline = (now + timedelta(days=1)).replace(hour=18, minute=0)
+    assert c.post("/api/devices/kitchen/dishwasher", json={"value": "armed", "deadline": deadline.isoformat()}).status_code == 200
+    plan = c.get("/api/state").json()["plans"][0]
+    assert all("cost_pence" in o for o in plan["options"])
+    assert all(not (datetime.fromisoformat(o["start"]).hour >= 22 or datetime.fromisoformat(o["start"]).hour < 7)
+               for o in plan["options"])

@@ -8,7 +8,8 @@ web page (scenario 3's rule editor). The server:
 - talks to it only over the MQTT bus, like any other client,
 - offers suggestions; an accepted one becomes live rules (automations, standby
   cuts) or a setting (smart start for a machine),
-- shows each armed machine's smart-start options and lets the user pick one.
+- shows each armed machine's smart-start options and lets the user pick one,
+  and lets the resident choose a tariff (cost-aware smart start) and quiet hours.
 
 Two demos (CAPSTONE_DEMO):
 
@@ -66,6 +67,9 @@ APPLIANCES = {
 }
 
 
+QUIET_HOURS = (22, 7)  # when quiet hours are on, no machine starts from 22:00 to 07:00
+
+
 class Runtime:
     """Everything the server holds: the home, its bus, the logs, and the simulation thread."""
 
@@ -81,6 +85,7 @@ class Runtime:
             (DATA / f).unlink(missing_ok=True)  # every server start is a fresh demo
         self.store = SuggestionStore(DATA / "suggestions.sqlite")
         self.smart_start: dict[str, dict] = {}  # device -> accepted smart-start setting
+        self.tariff, self.quiet = "none", False  # the resident's smart-start settings (cost-aware, quiet hours)
         self.switches = {}
         self.guard: ForestGuard | None = None  # the REFIT demo only (its forests need real history)
         self.appliances: list[tuple[str, str, float, float]] = []  # (name, device, watts, standby W)
@@ -130,6 +135,20 @@ class Runtime:
         self.guard = ForestGuard(self.bus, self.clock, demo.guarded, {a.device for a in demo.appliances})
         # Load-aware smart start: rank start times by the solar left after the house's usual load.
         self.home.scheduler.forecast = lambda t: max(0.0, demo.solar_w(t) - demo.expected_load_w(t))
+
+    def set_smart_start(self, tariff: str | None, quiet: bool | None) -> None:
+        """Caller holds self.lock. "none" ranks by solar; a tariff ranks by cost (habits/tariffs.py)."""
+        from habits.tariffs import EXPORT, TARIFFS, Prices
+
+        if tariff is not None:
+            if tariff != "none" and tariff not in TARIFFS:
+                raise ValueError(f"unknown tariff {tariff!r}")
+            self.tariff = tariff
+            self.home.scheduler.price = None if tariff == "none" else Prices(tariff)
+            self.home.scheduler.export_price = EXPORT
+        if quiet is not None:
+            self.quiet = quiet
+            self.home.scheduler.quiet = QUIET_HOURS if quiet else None
 
     def step(self, dt: float) -> None:
         # Caller holds self.lock.
@@ -238,6 +257,7 @@ def state():
             "smart_start": rt.smart_start.get(d.id),
         } for d in h.devices]
         plans = [p.to_dict() for p in h.scheduler.plans.values()]
+        smart_start_settings = {"tariff": rt.tariff, "quiet": rt.quiet}
         rules = [{"name": r.name, "origin": r.origin, "enabled": r.enabled,
                   "overrides": h.engine.overrides.get(r.name, 0)} for r in h.engine.rules]
         energy = {
@@ -260,6 +280,7 @@ def state():
         "energy": energy,
         "activity": [dict(zip(("ts", "type", "device", "value", "source", "payload"), r)) for r in activity],
         "plans": plans,
+        "smart_start_settings": smart_start_settings,
         "rules": rules,
     }
 
@@ -329,6 +350,21 @@ def choose(body: Choice):
     if not ok:
         raise HTTPException(409, "No plan for that device, or that start would miss the deadline")
     return {"ok": True}
+
+
+class SmartStartSettings(BaseModel):
+    tariff: str | None = None  # "none" (most solar), "flat", "economy7" or "agile"
+    quiet: bool | None = None  # no starts in the quiet hours (22:00-07:00)
+
+
+@app.post("/api/smart-start/settings")
+def smart_start_settings(body: SmartStartSettings):
+    with rt.lock:
+        try:
+            rt.set_smart_start(body.tariff, body.quiet)
+        except ValueError as err:
+            raise HTTPException(400, str(err))
+        return {"tariff": rt.tariff, "quiet": rt.quiet}
 
 
 class SimControl(BaseModel):

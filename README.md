@@ -16,7 +16,8 @@ The home finds habits by counting (routines and quiet windows), offers them as s
 approve, and lets each device limit what automation may do to it. A random forest checks the suggestions on
 unseen days and guards standby cuts; a standby-cut rule that is wrong three times switches itself off. Smart
 start runs a loaded dishwasher or washing machine before the user's deadline, when the most solar energy is
-expected to be left after the rest of the house's usual load.
+expected to be left after the rest of the house's usual load; given the household's tariff, it picks the cheapest
+start instead, and the resident can set quiet hours with no starts at night.
 
 ## Main results and the scripts that produce them
 
@@ -28,6 +29,7 @@ expected to be left after the rest of the house's usual load.
 | Every model tested both ways scores higher with a random split than with a time split | `eval_split_effect.py` (`kaggle/split_networks.ipynb`) |
 | Smart start: solar share of machine energy 16.8% → 53.6% (REFIT, 19 homes) and 24.1% → 70.4% (UK-DALE) with a perfect solar forecast, an upper bound | `eval_suggestions.py smart` |
 | Smart start with realistic forecasts: 41.3–43.0% (REFIT) and 51.7–54.3% (UK-DALE); a perfect load forecast would add at most 6.6 points | `eval_smart_start_forecasts.py` |
+| Cost-aware smart start with three UK tariffs (Octopus 2019: flat, Economy 7, Agile): without a panel, a REFIT home's machine cost falls by a median £7.57 a year on Economy 7 and £11.14 on Agile (cheaper in 18 and 19 of 19 homes); quiet hours (no start 22:00–07:00) keep most of it | `eval_smart_start_tariffs.py` (prices: `habits/tariffs.py`) |
 | Standby cuts with the three-strike rule: median 5.0% (REFIT) and 3.6% (UK-DALE) of cut nights interrupted, about 9 and 23 kWh/year per home | `eval_suggestions.py cuts` |
 | MQTT traffic of one home and broker load | `measure_mqtt.py` |
 | Hour-ahead load forecasting of single homes (Yaprakdal 2023, 2024): no published model beats persistence significantly; trained with absolute error, gradient boosting beats persistence and the networks | `eval_forecast.py`, `eval_forecast_habits.py` (`kaggle/capstone_kaggle.ipynb`, `kaggle/forecast_networks.ipynb`) |
@@ -84,6 +86,7 @@ The datasets are not in this repository; all are public under CC BY 4.0.
 | UK-DALE, 5 London homes | Kelly & Knottenbelt, *Sci. Data* 2015, https://doi.org/10.1038/sdata.2015.7 | `scripts/prepare_ukdale.py` (run on Kaggle, 3.6 GB) |
 | CASAS, the 21 single-resident homes of Gad et al. | Cook et al., *Computer* 2013, https://doi.org/10.1109/MC.2012.328; data: https://zenodo.org/records/15708568 (`labeled_data.zip`) | `scripts/prepare_casas.py` (run on Kaggle) |
 | Solar output and weather | PVGIS 5.3, European Commission JRC, https://re.jrc.ec.europa.eu/pvg_tools/en/ | Fetched on first use, cached in `data/raw/pvgis/` |
+| Electricity prices, 2019 | Octopus Energy public API, https://api.octopus.energy/v1/products/ (Agile half-hourly prices; flat, Economy 7 and export rates in `habits/tariffs.py`) | Agile fetched on first use, cached in `data/raw/tariffs/` |
 
 Select the dataset with `CAPSTONE_DATASET=ukdale` or `CAPSTONE_DATASET=casas` (REFIT is the default).
 

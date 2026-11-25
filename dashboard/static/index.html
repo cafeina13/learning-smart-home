@@ -114,7 +114,17 @@
 
   <section>
     <h2>Smart start</h2>
-    <p class="note-banner">Load a machine, say when it must be finished, and the house picks the start with the most solar to spare.</p>
+    <p class="note-banner">Load a machine, say when it must be finished, and the house picks the start with the most solar to spare, or the cheapest one if you set your tariff.</p>
+    <div class="head">
+      <label class="source">tariff
+        <select id="tariff">
+          <option value="none">none: most solar</option>
+          <option value="flat">flat</option>
+          <option value="economy7">Economy 7</option>
+          <option value="agile">Agile</option>
+        </select></label>
+      <label class="source"><input type="checkbox" id="quiet"> quiet hours (no start 22:00-07:00)</label>
+    </div>
     <div id="machines"></div>
   </section>
 
@@ -209,7 +219,7 @@ function renderMachines(devices, plans, nowIso) {
           <button class="btn" data-dev="${esc(d.id)}" data-val="off">Cancel</button></div>
         <div class="opts">${plan.options.map((o) => `
           <button class="opt ${o.start === plan.chosen ? "chosen" : ""}" data-plan="${esc(d.id)}" data-start="${esc(o.start)}">
-            Start ${fmtTime(o.start)}<small>${Math.round(100 * o.solar_share)}% on solar</small></button>`).join("")}</div></div>`;
+            Start ${fmtTime(o.start)}<small>${Math.round(100 * o.solar_share)}% on solar${o.cost_pence != null ? ` · ${o.cost_pence.toFixed(1)}p` : ""}</small></button>`).join("")}</div></div>`;
     }
     if (d.value === "on") return `<div class="machine"><div class="head"><b>${esc(pretty(d.id))}</b><span class="source">running</span></div></div>`;
     const value = typedDeadline[d.id] ?? defaultDeadline(d, nowIso);
@@ -263,11 +273,22 @@ async function refresh() {
     renderEnergy(s.energy);
     renderDevices(s.devices);
     renderMachines(s.devices, s.plans, s.time);
+    if (document.activeElement !== $("tariff")) $("tariff").value = s.smart_start_settings.tariff;
+    $("quiet").checked = s.smart_start_settings.quiet;
     renderActivity(s.activity);
   } catch (err) {
     $("clock").textContent = "Server not reachable";
   }
 }
+
+$("tariff").addEventListener("change", async (ev) => {
+  await api("/api/smart-start/settings", { tariff: ev.target.value });
+  refresh();
+});
+$("quiet").addEventListener("change", async (ev) => {
+  await api("/api/smart-start/settings", { quiet: ev.target.checked });
+  refresh();
+});
 
 document.addEventListener("click", async (ev) => {
   const b = ev.target.closest("button");
