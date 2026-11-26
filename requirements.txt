@@ -6,5 +6,6 @@ openpyxl
 fastapi
 uvicorn[standard]
 pyarrow
+shap  # explanations of the habit model's predictions (habits/explain.py)
 # The paper's CNN/BiLSTM forecasters; CPU build is enough:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu

@@ -1,4 +1,4 @@
-"""CASAS described, for docs/data_analysis.html: run where the prepared CASAS tables are (Kaggle).
+"""CASAS described, for the dataset analysis (scripts/analyze_data.py): run where the prepared CASAS tables are (Kaggle).
 
     CAPSTONE_DATASET=casas python scripts/analyze_casas.py
 

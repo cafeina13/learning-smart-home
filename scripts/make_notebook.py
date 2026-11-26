@@ -228,7 +228,7 @@ notify('{name}: FINISHED' if ok else '{name}: finished WITH ERRORS',
 
 
 def casas_analysis_cells():
-    """CASAS described for docs/data_analysis.html (scripts/analyze_casas.py), CPU, a few minutes."""
+    """CASAS described for the dataset analysis (scripts/analyze_casas.py), CPU, a few minutes."""
     name = out = "casas_analysis"
     return [
         ("markdown", f"""# Capstone: {name}
@@ -261,11 +261,153 @@ notify('{name}: FINISHED' if ok else '{name}: finished WITH ERRORS',
     ]
 
 
+def xai_cells():
+    """xai_boosting (CPU): gradient boosting as habit models next to the forest, SHAP for the habit
+    models and for the load forecaster, on REFIT, UK-DALE and CASAS."""
+    intro = """Two questions, one run (CPU):
+
+1. **Is the random forest the best tree model for habits?** LightGBM and CatBoost, with the same 15
+   inputs, settings fixed in advance, and the same threshold rule, next to the baseline, logistic
+   regression and the forest, on REFIT, UK-DALE and CASAS (`scripts/eval_refit.py --models ...`).
+2. **Explainable AI (SHAP).** Which inputs drive each habit model's predictions
+   (`scripts/explain_habits.py`, for the forest, LightGBM and CatBoost), and what drives the
+   gradient-boosting load forecaster (`scripts/explain_forecast.py`, REFIT and UK-DALE), and why the
+   forest guard restored power on real test nights, for rescues and false alarms
+   (`scripts/explain_guard.py`, REFIT and UK-DALE).
+
+**Settings:** Accelerator = **None** (CPU), Internet = **On** (CASAS from Zenodo, London's solar from
+PVGIS), dataset `capstone-bundle` (latest version) under Input. Save Version > Save & Run All (Commit).
+Phone notifications as before (secret `NTFY_URL`). Expect a few hours; each step logs to `logs/`."""
+    steps = DATASETS_LINE + """
+MODELS = ['random_forest', 'lightgbm', 'catboost']
+ok &= run_step('Tests', 'python -m pytest -q tests/test_features.py tests/test_habits.py tests/test_explain.py', 'logs/tests.log', summary_lines=2)
+for ds in DATASETS:
+    if ds == 'casas' and not casas_ok:
+        continue
+    env = {'CAPSTONE_DATASET': ds}
+    ok &= run_step(f'{ds} habit models + boosting', 'python -u scripts/eval_refit.py --models lightgbm,catboost',
+                   f'logs/{ds}_habit_boosting.log', env=env, summary_lines=30)
+    for m in MODELS:
+        ok &= run_step(f'{ds} SHAP {m}', f'python -u scripts/explain_habits.py --model {m}',
+                       f'logs/{ds}_shap_{m}.log', env=env, summary_lines=25)
+    if ds != 'casas':  # CASAS has no electricity load to forecast, nor standby cuts
+        ok &= run_step(f'{ds} SHAP forecaster', 'python -u scripts/explain_forecast.py',
+                       f'logs/{ds}_shap_forecast.log', env=env, summary_lines=15)
+        ok &= run_step(f'{ds} guard reasons', 'python -u scripts/explain_guard.py',
+                       f'logs/{ds}_guard_reasons.log', env=env, summary_lines=40)"""
+    return [
+        ("markdown", f"# Capstone: boosting and explainable AI\n\n{intro}\n\n**A new notebook copies none of these settings.**"),
+        ("code", SETUP + """
+import lightgbm, catboost, shap
+print('lightgbm', lightgbm.__version__, '| catboost', catboost.__version__, '| shap', shap.__version__)
+sys.path.insert(0, 'scripts')
+from kaggle_steps import ADDRESS, notify, run_step
+print('ntfy:', 'on' if ADDRESS else 'off (no NTFY_URL secret or first-line topic)')
+notify('Boosting + XAI: started', 'CASAS download, then the runs', 'default', 'rocket')"""),
+        ("code", CASAS_CELL),
+        ("code", steps),
+        ("code", """import zipfile, pathlib
+keep = ('habit_models', 'habit_shap', 'forecast_shap', 'guard_reasons')
+with zipfile.ZipFile('/kaggle/working/xai_boosting.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for f in pathlib.Path('data/results').rglob('*.csv'):
+        if f.name.startswith(keep):
+            zf.write(f, str(f))
+    for f in [*pathlib.Path('data/results').rglob('figures/xai-*.png'), *pathlib.Path('logs').rglob('*.log')]:
+        zf.write(f, str(f))
+print(round(pathlib.Path('/kaggle/working/xai_boosting.zip').stat().st_size / 1e6, 2), 'MB')
+shutil.rmtree('/kaggle/working/capstone', ignore_errors=True)  # keep the Output to the zip
+notify('Boosting + XAI: FINISHED' if ok else 'Boosting + XAI: finished WITH ERRORS',
+       'xai_boosting.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
+    ]
+
+
+def weekly_cells():
+    """weekly_habits (CPU): CatBoost finds habits every week from the last 3 weeks, against counting."""
+    intro = """**Weekly habit finding with a model** (`scripts/eval_weekly_habits.py`, `habits/weekly.py`): every week,
+CatBoost predicts from the last 3 weeks which slots will be habits next week, per appliance (so one slot
+can hold several habits), and keeps or drops existing ones (two thresholds). Its inputs include the other
+appliances in four ways (same slot, order, together or apart, room groups), tested as an ablation. Against
+counting once (today's system), counting over the last 3 weeks, and the last 3 weeks' rate; each home is
+predicted by a model trained on the other homes. Then SHAP by input group.
+
+**Settings:** Accelerator = **None** (CPU), Internet = **On** (CASAS from Zenodo), dataset `capstone-bundle`
+(latest version) under Input. Save Version > Save & Run All (Commit)."""
+    steps = DATASETS_LINE + """
+ok &= run_step('Tests', 'python -m pytest -q tests/test_weekly.py', 'logs/tests.log', summary_lines=2)
+for ds in DATASETS:
+    if ds == 'casas' and not casas_ok:
+        continue
+    ok &= run_step(f'{ds} weekly habits', 'python -u scripts/eval_weekly_habits.py',
+                   f'logs/{ds}_weekly_habits.log', env={'CAPSTONE_DATASET': ds}, summary_lines=40)"""
+    return [
+        ("markdown", f"# Capstone: weekly habit finding\n\n{intro}\n\n**A new notebook copies none of these settings.**"),
+        ("code", SETUP + """
+import catboost, shap, warnings
+warnings.filterwarnings('ignore', message='LightGBM binary classifier')
+print('catboost', catboost.__version__, '| shap', shap.__version__)
+sys.path.insert(0, 'scripts')
+from kaggle_steps import ADDRESS, notify, run_step
+print('ntfy:', 'on' if ADDRESS else 'off (no NTFY_URL secret or first-line topic)')
+notify('Weekly habits: started', 'CASAS download, then the runs', 'default', 'rocket')"""),
+        ("code", CASAS_CELL),
+        ("code", steps),
+        ("code", """import zipfile, pathlib
+with zipfile.ZipFile('/kaggle/working/weekly_habits.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for f in [*pathlib.Path('data/results').rglob('weekly_habits*.csv'), *pathlib.Path('logs').rglob('*.log')]:
+        zf.write(f, str(f))
+print(round(pathlib.Path('/kaggle/working/weekly_habits.zip').stat().st_size / 1e6, 2), 'MB')
+shutil.rmtree('/kaggle/working/capstone', ignore_errors=True)  # keep the Output to the zip
+notify('Weekly habits: FINISHED' if ok else 'Weekly habits: finished WITH ERRORS',
+       'weekly_habits.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
+    ]
+
+
+def weekly_models_cells():
+    """weekly_models (CPU): training regimes (own, other, hybrid) and six models for weekly habit finding."""
+    intro = """**Weekly habit finding: which data and which model** (`scripts/eval_weekly_models.py`). (1) CatBoost
+trained on the home's own past only, on the other homes only, and on both (hybrid). (2) In the hybrid
+regime, six models: random forest, XGBoost, LightGBM, CatBoost (tree ensembles: bagging and the three
+boosting libraries of Gad et al.), a linear model and a neural network (MLP). Same examples, decisions and
+scoring as `eval_weekly_habits.py`; thresholds never see the test weeks.
+
+**Settings:** Accelerator = **None** (CPU), Internet = **On** (CASAS from Zenodo), dataset `capstone-bundle`
+(latest version) under Input. Save Version > Save & Run All (Commit)."""
+    steps = DATASETS_LINE + """
+ok &= run_step('Tests', 'python -m pytest -q tests/test_weekly.py', 'logs/tests.log', summary_lines=2)
+for ds in DATASETS:
+    if ds == 'casas' and not casas_ok:
+        continue
+    ok &= run_step(f'{ds} weekly regimes + models', 'python -u scripts/eval_weekly_models.py',
+                   f'logs/{ds}_weekly_models.log', env={'CAPSTONE_DATASET': ds}, summary_lines=45)"""
+    return [
+        ("markdown", f"# Capstone: weekly habits, regimes and models\n\n{intro}\n\n**A new notebook copies none of these settings.**"),
+        ("code", SETUP + """
+import catboost, xgboost, lightgbm, warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+print('catboost', catboost.__version__, '| xgboost', xgboost.__version__, '| lightgbm', lightgbm.__version__)
+sys.path.insert(0, 'scripts')
+from kaggle_steps import ADDRESS, notify, run_step
+print('ntfy:', 'on' if ADDRESS else 'off (no NTFY_URL secret or first-line topic)')
+notify('Weekly models: started', 'CASAS download, then the runs', 'default', 'rocket')"""),
+        ("code", CASAS_CELL),
+        ("code", steps),
+        ("code", """import zipfile, pathlib
+with zipfile.ZipFile('/kaggle/working/weekly_models.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for f in [*pathlib.Path('data/results').rglob('weekly_models*.csv'), *pathlib.Path('logs').rglob('*.log')]:
+        zf.write(f, str(f))
+print(round(pathlib.Path('/kaggle/working/weekly_models.zip').stat().st_size / 1e6, 2), 'MB')
+shutil.rmtree('/kaggle/working/capstone', ignore_errors=True)  # keep the Output to the zip
+notify('Weekly models: FINISHED' if ok else 'Weekly models: finished WITH ERRORS',
+       'weekly_models.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
+    ]
+
+
 NOTEBOOKS = {"capstone_kaggle.ipynb": CELLS, "habit_networks.ipynb": habit_cells(),
              "habit_networks_4w.ipynb": habit_cells("--weeks 4 --epochs 60", "_4w"),
              "gad_comparison.ipynb": comparison_cells(gpu=False), "split_networks.ipynb": comparison_cells(gpu=True),
              "forecast_networks.ipynb": forecast_cells(),
-             "casas_analysis.ipynb": casas_analysis_cells()}
+             "casas_analysis.ipynb": casas_analysis_cells(), "xai_boosting.ipynb": xai_cells(),
+             "weekly_habits.ipynb": weekly_cells(), "weekly_models.ipynb": weekly_models_cells()}
 
 
 def write(name: str, spec) -> None:

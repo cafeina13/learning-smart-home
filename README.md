@@ -33,18 +33,21 @@ start instead, and the resident can set quiet hours with no starts at night.
 | Standby cuts with the three-strike rule: median 5.0% (REFIT) and 3.6% (UK-DALE) of cut nights interrupted, about 9 and 23 kWh/year per home | `eval_suggestions.py cuts` |
 | MQTT traffic of one home and broker load | `measure_mqtt.py` |
 | Hour-ahead load forecasting of single homes (Yaprakdal 2023, 2024): no published model beats persistence significantly; trained with absolute error, gradient boosting beats persistence and the networks | `eval_forecast.py`, `eval_forecast_habits.py` (`kaggle/capstone_kaggle.ipynb`, `kaggle/forecast_networks.ipynb`) |
+| Gradient boosting as the habit model: LightGBM and CatBoost (same inputs) are worse than the random forest on all three datasets (e.g. CatBoost worse on 81 of 123 REFIT tasks) | `eval_refit.py --models lightgbm,catboost` (`kaggle/xai_boosting.ipynb`) |
+| Explainable AI (SHAP): the forest relies on the hour of day (about a third), recency and the rest of the house's activity; the habit predictions explain 22–23% of the load forecaster's output; the reasons behind the guard's real restores separate rescues from false alarms | `explain_habits.py`, `explain_forecast.py`, `explain_guard.py` (`kaggle/xai_boosting.ipynb`); in the home: `habits/explain.py` |
+| Weekly habit finding: every week a model suggests, keeps or drops habits from the last 3 weeks, with the other appliances as inputs; compared with counting, across training regimes and six models (results pending) | `eval_weekly_habits.py`, `eval_weekly_models.py` (`kaggle/weekly_habits.ipynb`, `kaggle/weekly_models.ipynb`); `habits/weekly.py` |
 | Homes never seen in training; REFIT → UK-DALE external test | `eval_houses.py`, `eval_external.py` |
 | Datasets described | `analyze_data.py`, `analyze_casas.py` |
 
-All scripts are in `scripts/` and write their tables to `data/results/` (`data/results/ukdale/`,
-`data/results/casas/`).
+All scripts are in `scripts/` and write their tables and figures to `data/results/` (`data/results/ukdale/`,
+`data/results/casas/`; figures in `figures/` there).
 
 ## Layout
 
 | Folder | What it holds |
 | --- | --- |
 | `home/` | The simulated home: message format, MQTT bus, devices with control types, rule engine with the three-strike rule, smart-start scheduler, SQLite event log, phone notifications, the starting article's three scenarios |
-| `habits/` | Habit learning. System: power traces to appliance uses, routines and quiet windows, suggestions with energy estimates, the random forest that checks suggestions and guards standby cuts (`forest.py`). Research: hourly dataset, features, baseline, forest, GRU / CNN-GRU, Gad et al.'s method (`gad.py`). Loaders for REFIT, UK-DALE and CASAS |
+| `habits/` | Habit learning. System: power traces to appliance uses, routines and quiet windows, suggestions with energy estimates, the random forest that checks suggestions and guards standby cuts (`forest.py`), its reasons in words (`explain.py`), tariffs (`tariffs.py`). Research: hourly dataset, features, baseline, forest, GRU / CNN-GRU, Gad et al.'s method (`gad.py`), weekly habit finding (`weekly.py`). Loaders for REFIT, UK-DALE and CASAS |
 | `energy/` | Hour-ahead load forecasting following Yaprakdal (2023, 2024) |
 | `dashboard/` | FastAPI web dashboard: devices, energy, smart start, suggestions to accept or reject |
 | `scripts/` | Data preparation (`prepare_*`), one script per experiment (`eval_*`), demos, Kaggle packaging |

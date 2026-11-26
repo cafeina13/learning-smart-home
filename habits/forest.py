@@ -22,15 +22,20 @@ baseline. Here the same forest, with the same 15 past-only features
 The learning days are split like the evaluation: the forest trains on the first
 60%, its decision threshold is the best-F1 one on the next 20% (as in
 habits/models.py), and the check uses the last 20%, which it never saw.
+
+Both jobs can say why (habits/explain.py, SHAP): the guard gives the reasons for
+an early restore ("used at this hour yesterday; last used 2 hours ago"), and the
+check says what its agreement with a suggestion mostly rests on.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
 
 from habits.dataset import hourly_labels
+from habits.explain import Explainer, Reason
 from habits.features import build_features
 from habits.models import best_threshold, make_model
 from home.bus import Bus
@@ -46,6 +51,8 @@ class HabitForest:
     threshold: float
     check_days: list[date]  # the last 20% of the learning days, never trained on
     probability: pd.Series  # P(switched on in this hour) for every learning hour, from earlier hours only
+    features: pd.DataFrame | None = None  # the inputs of every learning hour (for explanations)
+    _explainer: Explainer | None = field(default=None, repr=False)
 
     @classmethod
     def fit(cls, uses: pd.DataFrame, hours: pd.DatetimeIndex, other_starts: pd.Series | None = None,
@@ -66,12 +73,31 @@ class HabitForest:
         model = make_model("random_forest").fit(X[train], labels[train])
         p = pd.Series(model.predict_proba(X)[:, 1], index=labels.index)
         threshold = best_threshold(labels[val], p[val].to_numpy())
-        return cls(model, threshold, [d for d in days if d >= b], p)
+        return cls(model, threshold, [d for d in days if d >= b], p, X)
 
     def predict(self, labels: pd.Series, other_starts: pd.Series | None = None) -> pd.Series:
         """P(switched on) for every hour of `labels` (0/1 per covered hour), each from earlier hours only."""
         X = build_features(labels, other_starts)
         return pd.Series(self.model.predict_proba(X)[:, 1], index=labels.index)
+
+    def explainer(self) -> Explainer:
+        if self._explainer is None:
+            self._explainer = Explainer(self.model)
+        return self._explainer
+
+    def explain_hour(self, labels: pd.Series, other_starts: pd.Series | None = None, top: int = 3) -> list[Reason]:
+        """Why the forest predicts what it does for the LAST hour of `labels` (as predict() sees it)."""
+        X = build_features(labels, other_starts)
+        return self.explainer().reasons(X.iloc[[-1]], top)
+
+    def window_reasons(self, weekdays: tuple[int, ...], start_slot: int, n_slots: int, expect_use: bool,
+                       top: int = 2) -> list[str]:
+        """What the check's verdict on a window mostly rests on, over the window's hours on the check days."""
+        if self.features is None:
+            return []
+        hours = [h for d in self.check_days if d.weekday() in weekdays for h in window_hours(d, start_slot, n_slots)]
+        X = self.features.loc[self.features.index.isin(pd.DatetimeIndex(hours))]
+        return self.explainer().main_reasons(X, towards_use=expect_use, top=top) if len(X) else []
 
     def agreement(self, weekdays: tuple[int, ...], start_slot: int, n_slots: int, expect_use: bool) -> float:
         """Share of the check days (of these weekdays) on which the forest agrees with the window:
@@ -128,6 +154,7 @@ class ForestGuard:
         self.starts: dict[str, list[datetime]] = {d: [] for d in self.watched}  # switch-ons seen live
         self.states: dict[str, str] = {}
         self.restored: list[tuple[datetime, str, float]] = []  # (time, device, probability), for logs and tests
+        self.reasons: list[list[str]] = []  # why each restore happened, in words (habits/explain.py)
         self._hour: datetime | None = None
         self._checked: set[tuple[str, datetime]] = set()
         bus.subscribe(f"{ROOT}/+/+/state", self._on_state)
@@ -143,7 +170,8 @@ class ForestGuard:
         if value == "cut" and device in self.guarded:
             self._check(device)
 
-    def probability_now(self, device: str) -> float:
+    def _inputs(self, device: str) -> tuple[pd.Series, pd.Series]:
+        """The device's uses and the rest of the house's switch-ons, learning period plus live, up to now."""
         g = self.guarded[device]
         hour = pd.Timestamp(self.clock.now()).floor("h")
         recent = pd.date_range(g.labels.index.max() + pd.Timedelta(hours=1), hour, freq="h")
@@ -151,7 +179,21 @@ class ForestGuard:
         labels[labels.index.isin(pd.DatetimeIndex(self.starts[device]).floor("h"))] = 1
         live = [t for d, ts in self.starts.items() if d != device for t in ts]
         others = pd.concat([g.others, pd.DatetimeIndex(live).floor("h").value_counts()])
-        return float(g.forest.predict(labels, others.groupby(level=0).sum()).iloc[-1])
+        return labels, others.groupby(level=0).sum()
+
+    def probability_now(self, device: str) -> float:
+        labels, others = self._inputs(device)
+        return float(self.guarded[device].forest.predict(labels, others).iloc[-1])
+
+    def reasons_now(self, device: str) -> list[str]:
+        """Why the forest expects a use this hour, in words; [] if its forest cannot explain itself."""
+        forest = self.guarded[device].forest
+        if not hasattr(forest, "explain_hour"):
+            return []
+        try:
+            return [r.phrase for r in forest.explain_hour(*self._inputs(device))]
+        except Exception:  # an explanation must never stop the guard from restoring the power
+            return []
 
     def _check(self, device: str) -> None:
         hour = self.clock.now().replace(minute=0, second=0, microsecond=0)
@@ -161,10 +203,12 @@ class ForestGuard:
         p = self.probability_now(device)
         if p >= self.guarded[device].forest.threshold:
             now = self.clock.now()
+            reasons = self.reasons_now(device)
             self.restored.append((now, device, p))
+            self.reasons.append(reasons)
             self.bus.publish(set_topic(device), command("off", now, SOURCE))  # "off" from an automation = restore
             self.bus.publish(ALERTS_TOPIC, {"kind": "forest_restored", "device": device,
-                                            "probability": round(p, 3), "ts": now.isoformat()})
+                                            "probability": round(p, 3), "reasons": reasons, "ts": now.isoformat()})
 
     def tick(self) -> None:
         """Called every simulation step; does its work once per hour."""

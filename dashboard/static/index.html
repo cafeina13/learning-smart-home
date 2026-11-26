@@ -240,6 +240,8 @@ function renderActivity(rows) {
         temperature_deviation: () => `Alert: ${esc(pretty(p.device))} at ${p.value} °C (average ${p.average} °C)`,
         refused: () => `Refused: ${esc(p.source)} may not set ${esc(pretty(p.device))} to “${esc(p.value)}”`,
         rule_disabled: () => `Rule “${esc(p.rule)}” switched off after ${p.overrides} overrides`,
+        forest_restored: () => `Power back on: ${esc(pretty(p.device))} (habit model ${Math.round(100 * p.probability)}%)` +
+          (p.reasons?.length ? `<span class="source"> because ${p.reasons.map(esc).join("; ")}</span>` : ""),
       }[p.kind]?.() ?? esc(p.kind);
       return `<div class="row"><time>${t}</time><span class="alert">${text}</span></div>`;
     }

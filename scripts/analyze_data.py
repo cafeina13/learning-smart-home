@@ -4,9 +4,8 @@
 
 Reads the prepared tables of REFIT and UK-DALE (data/processed/) and the CASAS
 preparation log from Kaggle (data/results/kaggle_logs/), and writes one page,
-docs/data_analysis.html (charts as SVG, hover a bar or cell for its value), and
-the same page as docs/data_analysis.pdf (printed by a headless Chromium, as in
-scripts/render_diagrams.py). Nothing is trained; it takes a few seconds.
+data/results/data_analysis.html (charts as SVG, hover a bar or cell for its value), and
+the same page as data/results/data_analysis.pdf (printed by a headless Chromium). Nothing is trained; it takes a few seconds.
 """
 
 import html
@@ -26,8 +25,8 @@ from energy.data import MAX_LOAD_W  # noqa: E402
 from habits.dataset import covered_days  # noqa: E402
 from habits.evaluate import appliance_type  # noqa: E402
 
-OUT_HTML = ROOT / "docs" / "data_analysis.html"
-OUT_PDF = ROOT / "docs" / "data_analysis.pdf"
+OUT_HTML = ROOT / "data" / "results" / "data_analysis.html"
+OUT_PDF = ROOT / "data" / "results" / "data_analysis.pdf"
 CASAS_LOG = ROOT / "data" / "results" / "kaggle_logs" / "gad_comparison_2" / "casas_prepare.log"
 CASAS_SUMMARY = ROOT / "data" / "results" / "casas" / "casas_summary.json"  # scripts/analyze_casas.py, on Kaggle
 DATASETS = {"refit": ("REFIT", "Loughborough area, UK", "8 s"), "ukdale": ("UK-DALE", "London, UK", "6 s")}

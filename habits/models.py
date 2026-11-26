@@ -7,6 +7,10 @@ and applied to the test weeks.
 logistic regression   linear, features standardised, classes balanced
 random forest         200 trees, leaves of at least 20 hours (to avoid
                       memorising rare hours), classes balanced per tree
+lightgbm, catboost    gradient-boosted trees, 300 rounds at learning rate 0.05,
+                      leaves of at least 20 hours, classes balanced; settings
+                      fixed in advance like the forest's (no tuning on any test
+                      weeks). Imported only when used (installed on Kaggle).
 
 Classes are balanced because most hours have no use (a washing machine starts
 in ~2% of hours): without it, "never" would look like a good answer.
@@ -41,6 +45,15 @@ def make_model(name: str):
     if name == "random_forest":
         return RandomForestClassifier(n_estimators=200, min_samples_leaf=20, class_weight="balanced_subsample",
                                       n_jobs=-1, random_state=0)
+    if name == "lightgbm":
+        from lightgbm import LGBMClassifier
+        return LGBMClassifier(n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20,
+                              subsample=0.8, subsample_freq=1, colsample_bytree=0.8, class_weight="balanced",
+                              random_state=0, verbose=-1)
+    if name == "catboost":
+        from catboost import CatBoostClassifier
+        return CatBoostClassifier(iterations=300, learning_rate=0.05, depth=6, min_data_in_leaf=20,
+                                  auto_class_weights="Balanced", random_seed=0, verbose=0, allow_writing_files=False)
     raise ValueError(name)
 
 
@@ -57,4 +70,5 @@ def fit_and_predict(name: str, task) -> tuple[np.ndarray, dict]:
     details = {"threshold": threshold}
     if name == "random_forest":
         details["importances"] = dict(zip(X.columns, model.feature_importances_))
+    details["model"] = model
     return predictions, details

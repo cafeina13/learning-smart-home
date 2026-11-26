@@ -199,6 +199,13 @@ def _check_with_forest(out: list[Suggestion], windows: list[tuple[int, int]], fo
         if a == a:  # not NaN: the check days had data in this window
             s.model_agreement = a
             s.energy_note += f". The habit model agrees on {a:.0%} of recent days it did not learn from"
+            if hasattr(forest, "window_reasons"):
+                try:
+                    why = forest.window_reasons(s.days, start_slot, n_slots, expect_use=s.kind == "automation")
+                except Exception:  # an explanation must never hold back a suggestion
+                    why = []
+                if why:
+                    s.energy_note += f", mostly from {' and '.join(why)}"
             if a < MIN_AGREEMENT:
                 continue
         kept.append(s)

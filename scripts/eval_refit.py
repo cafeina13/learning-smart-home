@@ -27,7 +27,10 @@ RESULTS = PATHS_RESULTS  # data/results, or data/results/ukdale
 MODELS = ["hour_of_week", "logistic_regression", "random_forest"]
 
 
-def main() -> None:
+def main(extra: list[str] | None = None) -> None:
+    """extra: more models from habits/models.py, e.g. ["lightgbm", "catboost"] (on Kaggle)."""
+    global MODELS
+    MODELS = MODELS + (extra or [])
     uses, covered, appliances = load_prepared()
     rows, importances = [], []
     for t in tasks(uses, covered, appliances):
@@ -68,7 +71,15 @@ def main() -> None:
     imp = pd.DataFrame(importances).mean().sort_values(ascending=False)
     print("\nRandom forest: mean feature importance")
     print(imp.round(3).to_string())
+    for m in MODELS:
+        if m in ("hour_of_week", "random_forest"):
+            continue
+        d = wide[m] - wide["random_forest"]
+        p_two = wilcoxon(wide[m], wide["random_forest"]).pvalue if (d != 0).any() else 1.0
+        print(f"  {m} vs random forest: better on {(d > 0).sum()}, worse on {(d < 0).sum()} of {len(d)} tasks "
+              f"(two-sided Wilcoxon p = {p_two:.1e})")
 
 
 if __name__ == "__main__":
-    main()
+    args = sys.argv[1:]  # e.g. --models lightgbm,catboost
+    main(args[args.index("--models") + 1].split(",") if "--models" in args else None)

@@ -74,9 +74,10 @@ class PhoneNotifier:
                          f"'{a['rule']}' is off: {why}. "
                          "It stays off.", "default", "no_entry")
         elif kind == "forest_restored":
+            why = f" Why: {'; '.join(a['reasons'])}." if a.get("reasons") else ""
             self._notify(f"Power back on: {nice_name(a['device'])}",
                          f"The habit model expects you to use it this hour ({a['probability']:.0%}), "
-                         f"so its standby cut ended early ({_time(a['ts'])}).", "low", "electric_plug")
+                         f"so its standby cut ended early ({_time(a['ts'])}).{why}", "low", "electric_plug")
         elif kind == "refused":
             self._notify(f"Not switched: {nice_name(a['device'])}",
                          f"{a['source']} asked for '{a['value']}' at {_time(a['ts'])}; automations may not do "
