@@ -12,15 +12,18 @@ habits for that week, per appliance and kind of day (habits/weekly.py):
                the threshold chosen on a fifth of the training homes (never on the tested home);
                for each set of inputs of the ablation: A+B+D, then adding C1, C2, C3, C4
 
-The model is trained across homes: every home is predicted by a model trained on the OTHER homes
-(grouped K-fold by home), as a new home would be. Scored on what really happened that week:
+The model is trained across homes: every home is predicted by a model trained on the OTHER homes,
+and only on their weeks before the tested home's test period (habits/weekly.py: time_folds; REFIT's
+homes were recorded at the same time, so another home's same weeks would leak the season being
+predicted). Scored on what really happened that week:
 
   precision  share of habit-days on which the habit happened (a use started in the habit's window)
   recall     share of the real switch-ons that fell inside a habit window
   F1         their balance, per task (home x appliance); medians over tasks, paired Wilcoxon
 
 Then SHAP on the full model: how much each input group (A, B, C1-C4, D) drives the predictions.
-Writes data/results/weekly_habits.csv (per task and system) and weekly_habits_shap.csv.
+Writes data/results/weekly_habits.csv (per task and system), weekly_habits_shap.csv, and every
+prediction with its threshold in weekly_habits_predictions.parquet.
 """
 
 import sys
@@ -32,19 +35,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from scipy.stats import wilcoxon  # noqa: E402
-from sklearn.model_selection import GroupKFold  # noqa: E402
-
 from habits.paths import DATASET, RESULTS  # noqa: E402
 from habits.prepare import load_prepared  # noqa: E402
 from habits.routines import WEEKDAYS, WEEKEND, find_routines  # noqa: E402
-from habits.weekly import (SLOTS, SUGGEST, WEEKS_BACK, best_threshold, columns_for, decide, features,  # noqa: E402
-                           group_of_column, home_data)
+from habits.weekly import (SLOTS, SUGGEST, TEST_SHARE, WEEKS_BACK, best_threshold, columns_for, cut_of,  # noqa: E402
+                           decide, features, group_of_column, home_data, time_folds)
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)  # all-NaN slices where a home lacks a type
 ABLATION = {"A+B+D": ("A", "B", "D"), "+C1": ("A", "B", "D", "C1"), "+C1+C2": ("A", "B", "D", "C1", "C2"),
             "+C1+C2+C3": ("A", "B", "D", "C1", "C2", "C3"), "all (+C4)": ("A", "B", "D", "C1", "C2", "C3", "C4")}
 MAX_TRAIN_ROWS = 600_000
-TEST_SHARE = 0.2
 
 
 def make_regressor():
@@ -96,7 +96,7 @@ def evaluate(frame: pd.DataFrame, homes: dict, uses: pd.DataFrame, appliances: p
     names = appliances.set_index(["house", "column"])["appliance"]
     for (house, col), g in frame.groupby(["house", "column"], sort=False):
         home = homes[house]
-        cut = pd.Timestamp(home.days[int(len(home.days) * (1 - TEST_SHARE))])
+        cut = cut_of(home)
         weeks = sorted(g["week"].unique())
         test_weeks = [w for w in weeks if w >= cut]
         if not test_weeks:
@@ -138,6 +138,15 @@ def evaluate(frame: pd.DataFrame, homes: dict, uses: pd.DataFrame, appliances: p
     return pd.DataFrame(rows)
 
 
+def save_predictions(frame: pd.DataFrame, predictions: dict, thresholds: dict, path: Path) -> None:
+    """Every prediction and threshold with its example's keys, to check results without rerunning."""
+    out = frame[["house", "column", "week", "kind", "slot", "label"]].copy()
+    for name, p in predictions.items():
+        out[f"pred {name}"] = p.astype("float32")
+        out[f"threshold {name}"] = np.asarray(thresholds[name], dtype="float32")
+    out.to_parquet(path, index=False)
+
+
 def main(max_homes: int | None = None, folds: int = 5) -> None:
     uses, covered, appliances = load_prepared()
     homes = {}
@@ -155,7 +164,12 @@ def main(max_homes: int | None = None, folds: int = 5) -> None:
     thresholds = {name: np.full(len(frame), SUGGEST) for name in ABLATION}
     houses = frame["house"].to_numpy()
     shap_rows, kind = [], None
-    for fold, (train, test) in enumerate(GroupKFold(n_splits=min(folds, len(homes))).split(frame, groups=houses)):
+    for fold, f in enumerate(time_folds(frame, homes, folds)):
+        # Learn only from the other homes' weeks before this fold's earliest test start (no future weeks).
+        train, test = f.other_past, f.tested
+        if len(train) == 0:
+            print(f"  fold {fold + 1}: no earlier weeks of other homes to learn from; skipped", flush=True)
+            continue
         train = np.random.default_rng(fold).permutation(train)[:MAX_TRAIN_ROWS]
         for name, groups in ABLATION.items():
             cols = columns_for(frame, groups)
@@ -184,6 +198,7 @@ def main(max_homes: int | None = None, folds: int = 5) -> None:
           ", ".join(f"{n} {np.mean(t):.2f}" for n, t in thresholds.items()))
     RESULTS.mkdir(parents=True, exist_ok=True)
     results.to_csv(RESULTS / "weekly_habits.csv", index=False)
+    save_predictions(frame, predictions, thresholds, RESULTS / "weekly_habits_predictions.parquet")
     wide = results.pivot_table(index=["house", "column"], columns="system", values="f1")
     print(f"\n{kind}; median over {len(wide)} tasks, test weeks only:")
     summary = results.groupby("system")[["precision", "recall", "f1"]].median().round(3)

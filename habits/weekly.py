@@ -213,6 +213,42 @@ def group_of_column(column: str) -> str:
     return next(g for g, test in INPUT_GROUPS.items() if test(column))
 
 
+TEST_SHARE = 0.2  # each home's test period: its last 20% of days
+
+
+def cut_of(home: Home) -> pd.Timestamp:
+    """The first day of the home's test period."""
+    return pd.Timestamp(home.days[int(len(home.days) * (1 - TEST_SHARE))])
+
+
+@dataclass
+class Fold:
+    houses: list[int]  # the homes tested in this fold
+    cut: pd.Timestamp  # the earliest test-period start among them: nothing at or after it is learned from
+    other_past: np.ndarray  # rows of the OTHER homes before the cut
+    own_past: np.ndarray  # rows of the tested homes before the cut
+    tested: np.ndarray  # every row of the tested homes (scored on their own test weeks only)
+
+
+def time_folds(frame: pd.DataFrame, homes: dict, k: int = 5) -> list[Fold]:
+    """Folds of homes with similar test-period starts. Every model learns only from weeks before the
+    earliest test start in its fold, from all homes: a home's data from the weeks being predicted, or
+    any later week of any home, is never learned from (REFIT's homes were recorded at the same time,
+    so another home's same weeks would tell the model about the very season being predicted)."""
+    order = sorted(homes, key=lambda h: cut_of(homes[h]))
+    houses = frame["house"].to_numpy()
+    weeks = frame["week"].to_numpy()
+    folds = []
+    for chunk in np.array_split(np.array(order), min(k, len(order))):
+        chunk = [int(h) for h in chunk]
+        cut = min(cut_of(homes[h]) for h in chunk)
+        in_chunk = np.isin(houses, chunk)
+        past = weeks < np.datetime64(cut)
+        folds.append(Fold(chunk, cut, np.flatnonzero(~in_chunk & past), np.flatnonzero(in_chunk & past),
+                          np.flatnonzero(in_chunk)))
+    return folds
+
+
 def decide(predicted: np.ndarray, previous: np.ndarray, suggest: float = SUGGEST,
            keep: float | None = None) -> np.ndarray:
     """Habit slots for the coming week: new at `suggest` or more, kept while at `keep` or more

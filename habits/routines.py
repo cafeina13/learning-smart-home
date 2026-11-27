@@ -131,11 +131,10 @@ def find_routines(uses: pd.DataFrame, days: list[date], appliance: str, min_supp
                 continue
             taken[s:s + n] = True
             in_window = uses[[d.weekday() in kind and s <= slot_of(d) < s + n for d in uses["start"]]]
-            routines.append(Routine(
-                appliance, kind, s, n, float(support), len(kind_days),
-                float(in_window["energy_wh"].mean()) if len(in_window) else 0.0,
-                float(in_window["duration_s"].mean()) if len(in_window) else 0.0,
-            ))
+            mean = lambda column: (float(in_window[column].mean())  # noqa: E731
+                                   if len(in_window) and column in in_window else 0.0)  # CASAS: no energy
+            routines.append(Routine(appliance, kind, s, n, float(support), len(kind_days),
+                                    mean("energy_wh"), mean("duration_s")))
     return routines
 
 

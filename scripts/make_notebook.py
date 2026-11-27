@@ -321,84 +321,56 @@ notify('Boosting + XAI: FINISHED' if ok else 'Boosting + XAI: finished WITH ERRO
     ]
 
 
-def weekly_cells():
-    """weekly_habits (CPU): CatBoost finds habits every week from the last 3 weeks, against counting."""
-    intro = """**Weekly habit finding with a model** (`scripts/eval_weekly_habits.py`, `habits/weekly.py`): every week,
-CatBoost predicts from the last 3 weeks which slots will be habits next week, per appliance (so one slot
-can hold several habits), and keeps or drops existing ones (two thresholds). Its inputs include the other
-appliances in four ways (same slot, order, together or apart, room groups), tested as an ablation. Against
-counting once (today's system), counting over the last 3 weeks, and the last 3 weeks' rate; each home is
-predicted by a model trained on the other homes. Then SHAP by input group.
+WEEKLY_JOBS = {  # job -> (command, what it runs); one Kaggle notebook per dataset and job, run in parallel
+    "habits": ("python -u scripts/eval_weekly_habits.py",
+               "CatBoost finds habits every week from the last 3 weeks, against counting; the C ablation"),
+    "regimes": ("python -u scripts/eval_weekly_models.py --part regimes --tag regimes",
+                "CatBoost trained on the home's own past, the other homes' past, or both"),
+    "rf": ("python -u scripts/eval_weekly_models.py --part models --models random_forest --tag rf",
+           "the random forest, other-homes regime"),
+    "xgb-lgbm": ("python -u scripts/eval_weekly_models.py --part models --models xgboost,lightgbm --tag xgb_lgbm",
+                 "XGBoost and LightGBM, other-homes regime"),
+    "cat-lin-mlp": ("python -u scripts/eval_weekly_models.py --part models --models catboost,linear,mlp --tag cat_lin_mlp",
+                    "CatBoost, the linear model and the MLP, other-homes regime"),
+}
+WEEKLY_DATASETS = ("refit", "ukdale", "casas")
 
-**Settings:** Accelerator = **None** (CPU), Internet = **On** (CASAS from Zenodo), dataset `capstone-bundle`
-(latest version) under Input. Save Version > Save & Run All (Commit)."""
-    steps = DATASETS_LINE + """
-ok &= run_step('Tests', 'python -m pytest -q tests/test_weekly.py', 'logs/tests.log', summary_lines=2)
-for ds in DATASETS:
-    if ds == 'casas' and not casas_ok:
-        continue
-    ok &= run_step(f'{ds} weekly habits', 'python -u scripts/eval_weekly_habits.py',
-                   f'logs/{ds}_weekly_habits.log', env={'CAPSTONE_DATASET': ds}, summary_lines=40)"""
+
+def weekly_job_cells(dataset: str, job: str) -> list:
+    """One weekly-habit job on one dataset (CPU). Every model learns only from weeks before the tested
+    homes' test period (habits/weekly.py: time_folds); results are zipped as soon as the step ends."""
+    command, what = WEEKLY_JOBS[job]
+    name = f"weekly {job}, {dataset}"
+    out = f"weekly_{job.replace('-', '_')}_{dataset}"
+    casas = CASAS_CELL if dataset == "casas" else "ok = casas_ok = True"
     return [
-        ("markdown", f"# Capstone: weekly habit finding\n\n{intro}\n\n**A new notebook copies none of these settings.**"),
-        ("code", SETUP + """
-import catboost, shap, warnings
-warnings.filterwarnings('ignore', message='LightGBM binary classifier')
-print('catboost', catboost.__version__, '| shap', shap.__version__)
-sys.path.insert(0, 'scripts')
-from kaggle_steps import ADDRESS, notify, run_step
-print('ntfy:', 'on' if ADDRESS else 'off (no NTFY_URL secret or first-line topic)')
-notify('Weekly habits: started', 'CASAS download, then the runs', 'default', 'rocket')"""),
-        ("code", CASAS_CELL),
-        ("code", steps),
-        ("code", """import zipfile, pathlib
-with zipfile.ZipFile('/kaggle/working/weekly_habits.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
-    for f in [*pathlib.Path('data/results').rglob('weekly_habits*.csv'), *pathlib.Path('logs').rglob('*.log')]:
-        zf.write(f, str(f))
-print(round(pathlib.Path('/kaggle/working/weekly_habits.zip').stat().st_size / 1e6, 2), 'MB')
-shutil.rmtree('/kaggle/working/capstone', ignore_errors=True)  # keep the Output to the zip
-notify('Weekly habits: FINISHED' if ok else 'Weekly habits: finished WITH ERRORS',
-       'weekly_habits.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
-    ]
+        ("markdown", f"""# Capstone: {name}
 
+{what} (`habits/weekly.py`; past-only training folds; every prediction saved).
 
-def weekly_models_cells():
-    """weekly_models (CPU): training regimes (own, other, hybrid) and six models for weekly habit finding."""
-    intro = """**Weekly habit finding: which data and which model** (`scripts/eval_weekly_models.py`). (1) CatBoost
-trained on the home's own past only, on the other homes only, and on both (hybrid). (2) In the hybrid
-regime, six models: random forest, XGBoost, LightGBM, CatBoost (tree ensembles: bagging and the three
-boosting libraries of Gad et al.), a linear model and a neural network (MLP). Same examples, decisions and
-scoring as `eval_weekly_habits.py`; thresholds never see the test weeks.
-
-**Settings:** Accelerator = **None** (CPU), Internet = **On** (CASAS from Zenodo), dataset `capstone-bundle`
-(latest version) under Input. Save Version > Save & Run All (Commit)."""
-    steps = DATASETS_LINE + """
-ok &= run_step('Tests', 'python -m pytest -q tests/test_weekly.py', 'logs/tests.log', summary_lines=2)
-for ds in DATASETS:
-    if ds == 'casas' and not casas_ok:
-        continue
-    ok &= run_step(f'{ds} weekly regimes + models', 'python -u scripts/eval_weekly_models.py',
-                   f'logs/{ds}_weekly_models.log', env={'CAPSTONE_DATASET': ds}, summary_lines=45)"""
-    return [
-        ("markdown", f"# Capstone: weekly habits, regimes and models\n\n{intro}\n\n**A new notebook copies none of these settings.**"),
-        ("code", SETUP + """
+**Settings:** Accelerator = **None** (CPU), Internet = **On**, dataset `capstone-bundle` (latest version) under Input.
+Save Version > Save & Run All (Commit). **A new notebook copies none of these settings.**"""),
+        ("code", SETUP + f"""
 import catboost, xgboost, lightgbm, warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 print('catboost', catboost.__version__, '| xgboost', xgboost.__version__, '| lightgbm', lightgbm.__version__)
 sys.path.insert(0, 'scripts')
 from kaggle_steps import ADDRESS, notify, run_step
 print('ntfy:', 'on' if ADDRESS else 'off (no NTFY_URL secret or first-line topic)')
-notify('Weekly models: started', 'CASAS download, then the runs', 'default', 'rocket')"""),
-        ("code", CASAS_CELL),
-        ("code", steps),
-        ("code", """import zipfile, pathlib
-with zipfile.ZipFile('/kaggle/working/weekly_models.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
-    for f in [*pathlib.Path('data/results').rglob('weekly_models*.csv'), *pathlib.Path('logs').rglob('*.log')]:
-        zf.write(f, str(f))
-print(round(pathlib.Path('/kaggle/working/weekly_models.zip').stat().st_size / 1e6, 2), 'MB')
+notify({name + ': started'!r}, {what!r}, 'default', 'rocket')"""),
+        ("code", casas),
+        ("code", f"""ok &= run_step('Tests', 'python -m pytest -q tests/test_weekly.py', 'logs/tests.log', summary_lines=2)
+if casas_ok:
+    ok &= run_step('{name}', '{command}', 'logs/{out}.log', env={{'CAPSTONE_DATASET': '{dataset}'}}, summary_lines=45)"""),
+        ("code", f"""import zipfile, pathlib
+with zipfile.ZipFile('/kaggle/working/{out}.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+    for f in [*pathlib.Path('data/results').rglob('weekly_*'), *pathlib.Path('logs').rglob('*.log')]:
+        if f.is_file():
+            zf.write(f, str(f))
+print(round(pathlib.Path('/kaggle/working/{out}.zip').stat().st_size / 1e6, 2), 'MB')
 shutil.rmtree('/kaggle/working/capstone', ignore_errors=True)  # keep the Output to the zip
-notify('Weekly models: FINISHED' if ok else 'Weekly models: finished WITH ERRORS',
-       'weekly_models.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
+notify('{name}: FINISHED' if ok else '{name}: finished WITH ERRORS',
+       '{out}.zip is in the Output tab', 'default' if ok else 'high', 'tada' if ok else 'warning')"""),
     ]
 
 
@@ -406,11 +378,10 @@ NOTEBOOKS = {"capstone_kaggle.ipynb": CELLS, "habit_networks.ipynb": habit_cells
              "habit_networks_4w.ipynb": habit_cells("--weeks 4 --epochs 60", "_4w"),
              "gad_comparison.ipynb": comparison_cells(gpu=False), "split_networks.ipynb": comparison_cells(gpu=True),
              "forecast_networks.ipynb": forecast_cells(),
-             "casas_analysis.ipynb": casas_analysis_cells(), "xai_boosting.ipynb": xai_cells(),
-             "weekly_habits.ipynb": weekly_cells(), "weekly_models.ipynb": weekly_models_cells()}
+             "casas_analysis.ipynb": casas_analysis_cells(), "xai_boosting.ipynb": xai_cells()}
 
 
-def write(name: str, spec) -> None:
+def write(name: str, spec, folder: Path | None = None) -> Path:
     cells = []
     for kind, text in spec:
         lines = text.splitlines(keepends=True)
@@ -422,13 +393,33 @@ def write(name: str, spec) -> None:
                                                       "name": "python3"},
                                        "language_info": {"name": "python"}},
           "nbformat": 4, "nbformat_minor": 5}
-    out = ROOT / "kaggle" / name
+    out = (folder or ROOT / "kaggle") / name
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(nb, indent=1), encoding="utf-8")
     print(out)
+    return out
+
+
+def write_weekly_jobs(outdir: Path, user: str = "cafein") -> None:
+    """One folder per dataset and job, ready for `kaggle kernels push -p <folder>`: the notebook and its
+    kernel-metadata.json (private, CPU, Internet on, capstone-bundle as input). Written outside the repo."""
+    for dataset in WEEKLY_DATASETS:
+        for job in WEEKLY_JOBS:
+            slug = f"capstone-weekly-{job}-{dataset}"
+            folder = outdir / slug
+            write(f"{slug}.ipynb", weekly_job_cells(dataset, job), folder)
+            meta = {"id": f"{user}/{slug}", "title": slug, "code_file": f"{slug}.ipynb", "language": "python",
+                    "kernel_type": "notebook", "is_private": True, "enable_gpu": False, "enable_tpu": False,
+                    "enable_internet": True, "dataset_sources": [f"{user}/capstone-bundle"],
+                    "competition_sources": [], "kernel_sources": []}
+            (folder / "kernel-metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 def main() -> None:
+    import sys
+    if "--weekly-jobs" in sys.argv:  # python scripts/make_notebook.py --weekly-jobs <folder outside the repo>
+        write_weekly_jobs(Path(sys.argv[sys.argv.index("--weekly-jobs") + 1]))
+        return
     for name, spec in NOTEBOOKS.items():
         write(name, spec)
 

@@ -76,3 +76,16 @@ def test_hours_without_data_are_excluded():
     gap = pd.date_range("2014-01-06 05:00", periods=100, freq="8s", tz="Europe/London")  # sparse hour
     hours = covered_hours(index.append(gap))
     assert list(hours) == [pd.Timestamp("2014-01-06 00:00", tz="Europe/London")]
+
+
+def test_routines_work_without_energy_columns():
+    # CASAS activities have no energy or duration: counting must still find their routines.
+    from datetime import date, datetime, timedelta
+
+    from habits.routines import WEEKDAYS, find_routines
+
+    days = [date(2014, 1, 6) + timedelta(days=i) for i in range(28)]
+    starts = [datetime.combine(d, datetime.min.time()) + timedelta(hours=7, minutes=10) for d in days if d.weekday() < 5]
+    uses = pd.DataFrame({"start": pd.to_datetime(starts)})
+    routines = find_routines(uses, days, "Cook_Breakfast", kinds=(WEEKDAYS,))
+    assert routines and routines[0].start_slot == 14 and routines[0].energy_wh_per_use == 0.0

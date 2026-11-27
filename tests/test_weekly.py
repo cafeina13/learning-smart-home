@@ -76,3 +76,19 @@ def test_linear_and_mlp_inputs_fill_gaps_flag_them_and_one_hot_the_type():
     assert not np.isnan(X).any()
     trees = Prepared("lightgbm", cols, frame, np.array([0, 1, 2])).X(frame)
     assert list(trees.columns) == cols and trees["c1_toaster"].isna().sum() == 2  # trees keep the gaps
+
+
+def test_folds_never_learn_from_the_test_period_or_later():
+    from habits.weekly import cut_of, time_folds
+
+    a, b = toy_home(0, weeks=12), toy_home(1, weeks=16)
+    b.house = 2
+    homes = {1: a, 2: b}
+    frame = pd.concat([features(a, ["kettle", "toaster"]), features(b, ["kettle", "toaster"])], ignore_index=True)
+    folds = time_folds(frame, homes, k=2)
+    assert sorted(h for f in folds for h in f.houses) == [1, 2]  # every home tested once
+    for f in folds:
+        learned = np.r_[f.other_past, f.own_past]
+        assert (frame["week"].to_numpy()[learned] < np.datetime64(f.cut)).all()  # nothing at or after the cut
+        assert f.cut == min(cut_of(homes[h]) for h in f.houses)
+        assert not np.isin(frame["house"].to_numpy()[f.other_past], f.houses).any()  # "other" = other homes
